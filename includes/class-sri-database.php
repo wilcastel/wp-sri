@@ -115,4 +115,29 @@ class WP_SRI_Database {
             $wpdb->prepare("SELECT * FROM {$this->table_name} ORDER BY last_checked DESC LIMIT %d", $limit)
         );
     }
+
+    /*
+     * Obtiene un recurso específico de la base de datos
+     * @since    1.0.0
+     * @param    int       $id    ID del recurso
+     * @return   object|null        Objeto con los datos del recurso o null si no existe
+     */
+
+    public function get_resource_by_id($id) {
+        global $wpdb;
+        return $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$this->table_name} WHERE id = %d",
+            $id
+        ));
+    }
+
+    /*
+     * Obtiene el número total de recursos almacenados
+     * @since    1.0.0
+     * @return   int                Número total de recursos
+     */
+    public function get_resources_count() {
+        global $wpdb;
+        return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$this->table_name}");
+    }
 }

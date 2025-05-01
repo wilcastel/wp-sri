@@ -120,15 +120,23 @@ class WP_SRI_Scanner {
         }
         
         // Verificar si es recurso externo
-        $host = parse_url($src, PHP_URL_HOST);
-        if (!$host || $host === $_SERVER['HTTP_HOST']) {
+        $current_domain = parse_url(home_url(), PHP_URL_HOST);
+        $resource_domain = parse_url($src, PHP_URL_HOST);
+
+        // Permitir recursos sin dominio (rutas relativas)
+        if (!$resource_domain) {
+            return false;
+        }
+        
+        // Si es del mismo dominio
+        if ($resource_domain === $current_domain) {
             return false;
         }
         
         // Verificar dominios excluidos
         foreach ($this->options['exclude_domains'] as $domain) {
             $domain = trim($domain);
-            if (!empty($domain) && strpos($host, $domain) !== false) {
+            if (!empty($domain) && strpos($resource_domain, $domain) !== false) {
                 return false;
             }
         }
@@ -320,23 +328,37 @@ class WP_SRI_Scanner {
      */
     public function analyze_external_resources() {
         $start_time = microtime(true);
+        $before_count = $this->database->get_resources_count();
         $processed = array(
             'frontend' => array('scripts' => 0, 'styles' => 0),
             'admin' => array('scripts' => 0, 'styles' => 0),
-            'failed' => 0
+            'failed' => 0,
+            'new_resources' => 0
         );
 
-        // 1. Analizar frontend - home page
+        // 1. Analizar frontend
         $frontend_url = home_url();
         $this->scan_frontend_resources($frontend_url, $processed);
 
-        // 2. Analizar recursos registrados en WordPress
+        // 2. Analizar admin (si está configurado)
+        if (apply_filters('wp_sri_scan_admin', false)) {
+            $admin_url = admin_url();
+            $this->scan_frontend_resources($admin_url, $processed);
+        }
+
+        // 3. Analizar recursos registrados
         $this->scan_registered_resources($processed);
+
+        // Calcular nuevos recursos
+        $after_count = $this->database->get_resources_count();
+        $processed['new_resources'] = $after_count - $before_count;
 
         return array(
             'status' => 'completed',
             'processed' => $processed,
-            'time' => round(microtime(true) - $start_time, 2)
+            'time' => round(microtime(true) - $start_time, 2),
+            'total_resources' => $after_count,
+            'new_resources' => $processed['new_resources']
         );
     }
 
@@ -350,7 +372,7 @@ class WP_SRI_Scanner {
      * @param    string    $url          URL a escanear
      * @param    array     $processed    Referencia al array de estadísticas
      */
-    private function scan_frontend_resources($url, &$processed) {
+    private function scan_frontend_resources($url, &$processed = null) {
         $response = wp_remote_get($url, array('timeout' => 30));
         
         if (!is_wp_error($response)) {
@@ -510,5 +532,39 @@ class WP_SRI_Scanner {
         );
     }
 
+    /**
+     * Escanea una URL específica
+     * @since 1.0.0
+     */
+    public function scan_single_url($url) {
+        $processed = array('scripts' => 0, 'styles' => 0, 'failed' => 0);
+        $response = wp_remote_get($url, array('timeout' => 30));
+        
+        if (is_wp_error($response)) {
+            return array(
+                'status' => 'failed',
+                'error' => $response->get_error_message()
+            );
+        }
+
+        $content = wp_remote_retrieve_body($response);
+        
+        // Contar recursos antes del escaneo
+        $before_count = $this->database->get_resources_count();
+
+        // Procesar el contenido
+        $this->find_resources_in_content($content, $processed, $url);
+
+        // Contar recursos después del escaneo
+        $after_count = $this->database->get_resources_count();
+        $new_resources = $after_count - $before_count;
+
+        return array(
+            'status' => 'completed',
+            'processed' => $processed,
+            'url' => $url,
+            'new_resources' => $new_resources
+        );
+    }
 
 }

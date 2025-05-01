@@ -2,6 +2,7 @@
 class WP_SRI_Admin {
     private $database;   
     private $scanner;
+    private $options;
     
     public function __construct($database, $scanner) {
         $this->database = $database;
@@ -20,6 +21,12 @@ class WP_SRI_Admin {
     private function init_hooks() {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'register_settings'));
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
+
+        // Procesar acciones
+        add_action('admin_post_wp_sri_update_hash', array($this, 'handle_update_hash'));
+        add_action('admin_post_wp_sri_delete_resource', array($this, 'handle_delete_resource'));
+        add_action('admin_post_wp_sri_scan_url', array($this, 'handle_scan_url'));
     }
     
     /**
@@ -235,34 +242,73 @@ class WP_SRI_Admin {
             wp_die(__('No tienes permisos suficientes para acceder a esta página.', 'wp-sri-security'));
         }
     
-        // Manejar el análisis de recursos
+       // Mostrar errores de dominio
+        if ($error = get_transient('wp_sri_scan_error')) {
+            add_settings_error(
+                'wp_sri_messages',
+                'wp_sri_message',
+                $error,
+                'error'
+            );
+            delete_transient('wp_sri_scan_error');
+        }
+
+        // Mostrar resultados exitosos
+        if ($scan_results = get_transient('wp_sri_scan_results')) {
+            add_settings_error(
+                'wp_sri_messages',
+                'wp_sri_message',
+                $scan_results,
+                'success'
+            );
+            delete_transient('wp_sri_scan_results');
+        }
+
+        // Manejar análisis completo del sitio
         if (isset($_POST['wp_sri_analyze_resources'])) {
             check_admin_referer('wp_sri_analyze_action');
             $result = $this->scanner->analyze_external_resources();
             
-            if ($result['status'] === 'completed') {
-                add_settings_error(
-                    'wp_sri_messages',
-                    'wp_sri_message',
-                    __('Análisis completado correctamente.', 'wp-sri-security'),
-                    'success'
+            // Preparar mensaje detallado
+            $message = sprintf(
+                __('Análisis completado en %s segundos. ', 'wp-sri-security'),
+                $result['time']
+            );
+            
+            if ($result['new_resources'] > 0) {
+                $message .= sprintf(
+                    _n(
+                        'Se agregó %d nuevo recurso. ',
+                        'Se agregaron %d nuevos recursos. ',
+                        $result['new_resources'],
+                        'wp-sri-security'
+                    ),
+                    $result['new_resources']
                 );
             } else {
-                add_settings_error(
-                    'wp_sri_messages',
-                    'wp_sri_message',
-                    __('Ocurrieron algunos errores durante el análisis.', 'wp-sri-security'),
-                    'error'
-                );
+                $message .= __('No se encontraron nuevos recursos. ', 'wp-sri-security');
             }
+            
+            $message .= sprintf(
+                __('Detalle: %d scripts frontend, %d estilos frontend, %d scripts admin, %d estilos admin procesados.', 'wp-sri-security'),
+                $result['processed']['frontend']['scripts'],
+                $result['processed']['frontend']['styles'],
+                $result['processed']['admin']['scripts'],
+                $result['processed']['admin']['styles']
+            );
+
+            add_settings_error(
+                'wp_sri_messages',
+                'wp_sri_message',
+                $message,
+                'success'
+            );
         }
     
-        // Mostrar mensajes
+        // Mostrar todos los mensajes
         settings_errors('wp_sri_messages');
-    
         // Obtener recursos para mostrar
         $resources = $this->database->get_all_resources();
-        
         include WP_SRI_PLUGIN_DIR . 'templates/resources-page.php';
     }
     
@@ -279,5 +325,162 @@ class WP_SRI_Admin {
         }
         
         include WP_SRI_PLUGIN_DIR . 'templates/settings-page.php';
+    }
+
+    /**
+     * Encola los archivos CSS y JS necesarios para la página de administración
+     *
+     * Carga los archivos CSS y JS necesarios para la página de administración
+     * y las páginas de configuración
+     *
+     * @since    1.0.0
+     * @param    string    $hook    enqueue_admin_scripts
+     */
+    public function enqueue_admin_scripts($hook) {
+        if ($hook === 'toplevel_page_wp-sri-security') {
+            wp_enqueue_script(
+                'wp-sri-admin-js',
+                WP_SRI_PLUGIN_URL . 'assets/js/admin.js',
+                array('jquery'),
+                WP_SRI_VERSION,
+                true
+            );
+        }
+    }
+    /**
+     * Maneja la actualización del hash de un recurso
+     *
+     * Verifica la nonce y actualiza el hash del recurso en la base de datos
+     * 
+     * @since    1.0.0
+     */
+
+    public function handle_update_hash() {
+        if (!current_user_can('manage_options') || !isset($_GET['resource_id'])) {
+            wp_die(__('Acceso no autorizado', 'wp-sri-security'));
+        }
+    
+        check_admin_referer('wp_sri_update_hash_' . $_GET['resource_id']);
+    
+        $resource_id = intval($_GET['resource_id']);
+        $resource = $this->database->get_resource_by_id($resource_id); // Necesitarás implementar este método
+    
+        if ($resource) {
+            // Lógica para actualizar el hash (similar a get_or_create_resource en WP_SRI_Scanner)
+            $content = $this->scanner->get_resource_content($resource->url);
+            if ($content) {
+                $hash = base64_encode(hash($this->options['hash_algorithm'], $content, true));
+                $this->database->update_resource(
+                    array(
+                        'hash' => $hash,
+                        'hash_algorithm' => $this->options['hash_algorithm'],
+                        'last_checked' => current_time('mysql')
+                    ),
+                    array('id' => $resource_id)
+                );
+            }
+        }
+    
+        wp_redirect(admin_url('admin.php?page=wp-sri-security&updated=1'));
+        exit;
+    }
+    
+    /*
+     * Maneja la eliminación de un recurso
+     *
+     * Elimina un recurso de la base de datos
+     *
+     * @since    1.0.0
+     */
+
+    public function handle_delete_resource() {
+        if (!current_user_can('manage_options') || !isset($_GET['resource_id'])) {
+            wp_die(__('Acceso no autorizado', 'wp-sri-security'));
+        }
+    
+        check_admin_referer('wp_sri_delete_resource_' . $_GET['resource_id']);
+    
+        $this->database->delete_resource(intval($_GET['resource_id']));
+    
+        wp_redirect(admin_url('admin.php?page=wp-sri-security&deleted=1'));
+        exit;
+    }
+
+    /**
+     * Maneja el escaneo de una URL específica
+     *
+     * Escanea una URL específica para detectar recursos externos
+     *
+     * @since    1.0.0
+     */
+    public function handle_scan_url() {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('Acceso no autorizado', 'wp-sri-security'));
+        }
+    
+        check_admin_referer('wp_sri_scan_url_action');
+
+        $url = esc_url_raw($_POST['target_url']);
+        $current_domain = parse_url(home_url(), PHP_URL_HOST);
+        $target_domain = parse_url($url, PHP_URL_HOST);
+    
+               
+        // Verificar que sea del mismo dominio
+        if (!$target_domain || $target_domain !== $current_domain) {
+            set_transient('wp_sri_scan_error', 
+                sprintf(
+                    __('Error: Solo puedes escanear URLs de tu propio sitio (%s). La URL ingresada pertenece a %s.', 'wp-sri-security'),
+                    $current_domain,
+                    $target_domain ?: __('dominio desconocido', 'wp-sri-security')
+                ),
+            30);
+            
+            wp_redirect(admin_url('admin.php?page=wp-sri-security'));
+            exit;
+        }
+    
+        // Escanear la URL
+        $result = $this->scanner->scan_single_url($url);
+    
+        // Preparar mensaje de resultado
+        $message = sprintf(
+            __('Escaneo completado para %s. %d nuevos recursos encontrados.', 'wp-sri-security'),
+            $url,
+            ($result['processed']['scripts'] + $result['processed']['styles'])
+        );
+    
+        if ($result['processed']['scripts'] > 0) {
+            $message .= ' ' . sprintf(
+                _n('%d script', '%d scripts', $result['processed']['scripts'], 'wp-sri-security'),
+                $result['processed']['scripts']
+            );
+        }
+    
+        if ($result['processed']['styles'] > 0) {
+            $message .= ' ' . sprintf(
+                _n('%d estilo', '%d estilos', $result['processed']['styles'], 'wp-sri-security'),
+                $result['processed']['styles']
+            );
+        }
+    
+        if ($result['processed']['scripts'] + $result['processed']['styles'] === 0) {
+            $message = sprintf(
+                __('Escaneo completado para %s. No se encontraron nuevos recursos.', 'wp-sri-security'),
+                $url
+            );
+        }
+    
+        add_settings_error(
+            'wp_sri_messages',
+            'wp_sri_message',
+            $message,
+            'success'
+        );
+    
+        // Guardar en transitorio para mostrarlo después del redirect
+        set_transient('wp_sri_scan_results', $message, 30);
+    
+        wp_redirect(admin_url('admin.php?page=wp-sri-security'));
+        exit;
     }
 }
