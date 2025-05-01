@@ -1,9 +1,10 @@
 <?php
+
 class WP_SRI_Scanner {
     private $database;
-    private $cache;
+    private $cache;   
     private $options;
-    
+  
     public function __construct($database) {
         $this->database = $database;
         $this->cache = new WP_SRI_Cache();
@@ -15,6 +16,16 @@ class WP_SRI_Scanner {
         ));
     }
 
+    /**
+     * Procesa todo el contenido HTML de una página
+     *
+     * Analiza y modifica las etiquetas de script y estilo para añadir atributos SRI
+     *
+     * @since    1.0.0
+     * @param    string    $content     Contenido HTML completo
+     * @param    string    $found_on    URL donde se encontró el contenido
+     * @return   string    Contenido HTML modificado con atributos SRI
+     */
     public function process_entire_output($content, $found_on) {
         // Procesar scripts
         $content = preg_replace_callback(
@@ -51,6 +62,18 @@ class WP_SRI_Scanner {
         return $content;
     }
     
+    /**
+     * Procesa un recurso individual
+     *
+     * Añade atributos SRI a una etiqueta HTML específica
+     *
+     * @since    1.0.0
+     * @param    string    $tag         Etiqueta HTML completa
+     * @param    string    $src         URL del recurso
+     * @param    string    $type        Tipo de recurso (script o style)
+     * @param    string    $found_on    URL donde se encontró el recurso
+     * @return   string    Etiqueta HTML modificada con atributos SRI
+     */
     public function process_resource($tag, $src, $type, $found_on = null) {
         if (!$this->should_process($src, $type)) {
             return $tag;
@@ -71,7 +94,6 @@ class WP_SRI_Scanner {
         }
 
         // Para tags normales procesados por los hooks
-
         if ($resource && $resource->is_valid() && !empty($tag)) {
             return $this->add_attributes_to_tag($tag, $resource);
         }
@@ -81,6 +103,14 @@ class WP_SRI_Scanner {
     
     /**
      * Determina si un recurso debe ser procesado
+     *
+     * Verifica si el recurso cumple con los criterios para añadir SRI
+     *
+     * @since    1.0.0
+     * @access   private
+     * @param    string    $src     URL del recurso
+     * @param    string    $type    Tipo de recurso (script o style)
+     * @return   bool      True si debe procesarse, false en caso contrario
      */
     private function should_process($src, $type) {
         // Verificar si está habilitado para este tipo
@@ -108,6 +138,15 @@ class WP_SRI_Scanner {
     
     /**
      * Obtiene o crea un recurso en la base de datos
+     *
+     * Busca un recurso existente o genera uno nuevo con su hash SRI
+     *
+     * @since    1.0.0
+     * @access   private
+     * @param    string    $src         URL del recurso
+     * @param    string    $type        Tipo de recurso (script o style)
+     * @param    string    $found_on    URL donde se encontró el recurso
+     * @return   WP_SRI_Resource|null   Objeto recurso o null si no se pudo procesar
      */
     private function get_or_create_resource($src, $type, $found_on = null) {
         // Primero verificar caché
@@ -135,11 +174,11 @@ class WP_SRI_Scanner {
                 ));
                 
                 // Guardar en base de datos
-                    if ($resource->id ?? false) {
-                        $this->database->update_resource($resource->to_array(), array('id' => $resource->id));
-                    } else {
-                        $this->database->insert_resource($resource->to_array());
-                    }
+                if ($resource->id ?? false) {
+                    $this->database->update_resource($resource->to_array(), array('id' => $resource->id));
+                } else {
+                    $this->database->insert_resource($resource->to_array());
+                }
                                     
                 // Actualizar caché
                 $this->cache->set($src, $type, $resource_data);
@@ -151,6 +190,14 @@ class WP_SRI_Scanner {
     
     /**
      * Añade atributos SRI a la etiqueta HTML
+     *
+     * Modifica una etiqueta HTML para incluir los atributos integrity y crossorigin
+     *
+     * @since    1.0.0
+     * @access   private
+     * @param    string           $tag        Etiqueta HTML original
+     * @param    WP_SRI_Resource  $resource   Objeto recurso con datos SRI
+     * @return   string           Etiqueta HTML modificada
      */
     private function add_attributes_to_tag($tag, $resource) {
         // Verificar si ya tiene atributos SRI
@@ -182,6 +229,13 @@ class WP_SRI_Scanner {
     
     /**
      * Obtiene el contenido de un recurso externo
+     *
+     * Descarga el contenido de un recurso remoto con caché temporal
+     *
+     * @since    1.0.0
+     * @access   private
+     * @param    string    $url    URL del recurso a descargar
+     * @return   string|false      Contenido del recurso o false si falló
      */
     private function get_resource_content($url) {
         $cache_key = 'wp_sri_content_' . md5($url);
@@ -215,6 +269,13 @@ class WP_SRI_Scanner {
     
     /**
      * Verifica si un recurso necesita actualización
+     *
+     * Determina si un recurso debe ser actualizado basado en su algoritmo o fecha
+     *
+     * @since    1.0.0
+     * @access   private
+     * @param    object    $resource    Datos del recurso
+     * @return   bool      True si necesita actualización, false en caso contrario
      */
     private function resource_needs_update($resource) {
         return $resource->hash_algorithm !== $this->options['hash_algorithm'] || 
@@ -223,6 +284,12 @@ class WP_SRI_Scanner {
     
     /**
      * Obtiene la URL donde se detectó el recurso
+     *
+     * Determina la URL actual o el contexto donde se encontró el recurso
+     *
+     * @since    1.0.0
+     * @access   private
+     * @return   string    URL o descripción del contexto
      */
     private function get_current_detection_url() {
         if (!is_admin()) {
@@ -243,6 +310,14 @@ class WP_SRI_Scanner {
         return 'Registered Resource';
     }
 
+    /**
+     * Analiza recursos externos en todo el sitio
+     *
+     * Escanea la página principal y los recursos registrados en WordPress
+     *
+     * @since    1.0.0
+     * @return   array    Resultados del análisis con estadísticas
+     */
     public function analyze_external_resources() {
         $start_time = microtime(true);
         $processed = array(
@@ -265,6 +340,16 @@ class WP_SRI_Scanner {
         );
     }
 
+    /**
+     * Escanea recursos en la página principal
+     *
+     * Obtiene y procesa el contenido de la página principal
+     *
+     * @since    1.0.0
+     * @access   private
+     * @param    string    $url          URL a escanear
+     * @param    array     $processed    Referencia al array de estadísticas
+     */
     private function scan_frontend_resources($url, &$processed) {
         $response = wp_remote_get($url, array('timeout' => 30));
         
@@ -274,7 +359,18 @@ class WP_SRI_Scanner {
         }
     }
 
-    protected  function find_resources_in_content($content, &$processed, $found_on) {
+    /**
+     * Busca recursos en el contenido HTML
+     *
+     * Extrae y procesa scripts y estilos externos del contenido
+     *
+     * @since    1.0.0
+     * @access   protected
+     * @param    string    $content      Contenido HTML
+     * @param    array     $processed    Referencia al array de estadísticas
+     * @param    string    $found_on     URL donde se encontró el contenido
+     */
+    protected function find_resources_in_content($content, &$processed, $found_on) {
         // Buscar scripts externos
         if (preg_match_all('/<script\b[^>]*src=["\']([^"\'>]+)["\'][^>]*>/i', $content, $script_matches)) {
             foreach ($script_matches[1] as $src) {
@@ -296,6 +392,15 @@ class WP_SRI_Scanner {
         }
     }
     
+    /**
+     * Escanea recursos registrados en WordPress
+     *
+     * Procesa scripts y estilos registrados en el sistema
+     *
+     * @since    1.0.0
+     * @access   private
+     * @param    array    $processed    Referencia al array de estadísticas
+     */
     private function scan_registered_resources(&$processed) {
         // Analizar scripts registrados
         global $wp_scripts, $wp_styles;
@@ -319,6 +424,16 @@ class WP_SRI_Scanner {
         }
     }
 
+    /**
+     * Escanea recursos en el contenido
+     *
+     * Busca y procesa scripts en el contenido HTML
+     *
+     * @since    1.0.0
+     * @param    string    $content     Contenido HTML
+     * @param    string    $found_on    URL donde se encontró el contenido
+     * @return   string    Contenido HTML modificado
+     */
     public function scan_content_resources($content, $found_on) {
         // Buscar y reemplazar scripts directamente en el contenido
         $content = preg_replace_callback(
@@ -348,6 +463,18 @@ class WP_SRI_Scanner {
         return $content;
     }
 
+    /**
+     * Genera una etiqueta de script con atributos SRI
+     *
+     * Crea una etiqueta <script> completa con los atributos necesarios
+     *
+     * @since    1.0.0
+     * @access   private
+     * @param    string           $src        URL del script
+     * @param    string           $attrs      Atributos adicionales
+     * @param    WP_SRI_Resource  $resource   Objeto recurso con datos SRI
+     * @return   string           Etiqueta HTML completa
+     */
     private function generate_script_tag($src, $attrs, $resource) {
         $async = strpos($attrs, 'async') !== false ? ' async' : '';
         $defer = strpos($attrs, 'defer') !== false ? ' defer' : '';
@@ -362,6 +489,18 @@ class WP_SRI_Scanner {
         );
     }
 
+    /**
+     * Genera una etiqueta de estilo con atributos SRI
+     *
+     * Crea una etiqueta <link> completa con los atributos necesarios
+     *
+     * @since    1.0.0
+     * @access   private
+     * @param    string           $href       URL del estilo
+     * @param    string           $attrs      Atributos adicionales
+     * @param    WP_SRI_Resource  $resource   Objeto recurso con datos SRI
+     * @return   string           Etiqueta HTML completa
+     */
     private function generate_style_tag($href, $attrs, $resource) {
         return sprintf('<link href="%s" rel="stylesheet" integrity="%s-%s" crossorigin="anonymous"%s>',
             esc_url($href),

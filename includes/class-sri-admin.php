@@ -1,6 +1,6 @@
 <?php
 class WP_SRI_Admin {
-    private $database;
+    private $database;   
     private $scanner;
     
     public function __construct($database, $scanner) {
@@ -9,11 +9,26 @@ class WP_SRI_Admin {
         $this->init_hooks();
     }
     
+    /**
+     * Inicializa los hooks de WordPress para la administración
+     *
+     * Configura las acciones necesarias para registrar menús y opciones
+     *
+     * @since    1.0.0
+     * @access   private
+     */
     private function init_hooks() {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'register_settings'));
     }
     
+    /**
+     * Añade los menús y submenús de administración
+     *
+     * Crea la estructura de menús en el panel de administración de WordPress
+     *
+     * @since    1.0.0
+     */
     public function add_admin_menu() {
         add_menu_page(
             __('WP SRI Security', 'wp-sri-security'),
@@ -44,6 +59,13 @@ class WP_SRI_Admin {
         );
     }
     
+    /**
+     * Registra las opciones y secciones de configuración
+     *
+     * Configura los campos y secciones para la página de configuración
+     *
+     * @since    1.0.0
+     */
     public function register_settings() {
         register_setting('wp_sri_security_options', 'wp_sri_security_options', array(
             'sanitize_callback' => array($this, 'sanitize_options')
@@ -89,10 +111,24 @@ class WP_SRI_Admin {
         );
     }
     
+    /**
+     * Callback para la descripción de la sección de configuración
+     *
+     * Muestra el texto descriptivo para la sección de configuración general
+     *
+     * @since    1.0.0
+     */
     public function settings_section_callback() {
         echo '<p>' . __('Configura cómo WP SRI Security implementará los atributos de integridad para recursos externos.', 'wp-sri-security') . '</p>';
     }
     
+    /**
+     * Callback para el campo de habilitar SRI en scripts
+     *
+     * Renderiza el campo de checkbox para habilitar SRI en scripts
+     *
+     * @since    1.0.0
+     */
     public function enable_scripts_callback() {
         $options = get_option('wp_sri_security_options');
         ?>
@@ -101,6 +137,13 @@ class WP_SRI_Admin {
         <?php
     }
     
+    /**
+     * Callback para el campo de habilitar SRI en estilos
+     *
+     * Renderiza el campo de checkbox para habilitar SRI en hojas de estilo
+     *
+     * @since    1.0.0
+     */
     public function enable_styles_callback() {
         $options = get_option('wp_sri_security_options');
         ?>
@@ -109,6 +152,13 @@ class WP_SRI_Admin {
         <?php
     }
     
+    /**
+     * Callback para el campo de algoritmo de hash
+     *
+     * Renderiza el selector de algoritmo de hash para los atributos SRI
+     *
+     * @since    1.0.0
+     */
     public function hash_algorithm_callback() {
         $options = get_option('wp_sri_security_options');
         $algorithms = array('sha256', 'sha384', 'sha512');
@@ -124,6 +174,13 @@ class WP_SRI_Admin {
         <?php
     }
     
+    /**
+     * Callback para el campo de dominios a excluir
+     *
+     * Renderiza el área de texto para ingresar dominios que se excluirán de SRI
+     *
+     * @since    1.0.0
+     */
     public function exclude_domains_callback() {
         $options = get_option('wp_sri_security_options');
         $domains = isset($options['exclude_domains']) ? implode("\n", $options['exclude_domains']) : '';
@@ -133,6 +190,15 @@ class WP_SRI_Admin {
         <?php
     }
     
+    /**
+     * Sanitiza las opciones antes de guardarlas
+     *
+     * Valida y limpia los datos de entrada del formulario de configuración
+     *
+     * @since    1.0.0
+     * @param    array    $input    Array con los valores de entrada del formulario
+     * @return   array    Array con los valores sanitizados
+     */
     public function sanitize_options($input) {
         $new_input = array();
         
@@ -157,6 +223,13 @@ class WP_SRI_Admin {
         return $new_input;
     }
     
+    /**
+     * Renderiza la página de recursos externos
+     *
+     * Muestra la lista de recursos externos detectados y sus atributos SRI
+     *
+     * @since    1.0.0
+     */
     public function render_resources_page() {
         if (!current_user_can('manage_options')) {
             wp_die(__('No tienes permisos suficientes para acceder a esta página.', 'wp-sri-security'));
@@ -193,6 +266,13 @@ class WP_SRI_Admin {
         include WP_SRI_PLUGIN_DIR . 'templates/resources-page.php';
     }
     
+    /**
+     * Renderiza la página de configuración
+     *
+     * Muestra el formulario con las opciones de configuración del plugin
+     *
+     * @since    1.0.0
+     */
     public function render_settings_page() {
         if (!current_user_can('manage_options')) {
             wp_die(__('No tienes permisos suficientes para acceder a esta página.', 'wp-sri-security'));

@@ -3,7 +3,7 @@
  * Plugin Name: WP SRI Security
  * Plugin URI: https://wilcastell.com/wp-sri-security
  * Description: Implementa atributos SRI (Subresource Integrity) automáticamente para recursos cargados externamente en WordPress.
- * Version: 1.0.0
+ * Version: 0.0.1
  * Author: wilcastell
  * Author URI: https://github.com/wilcastel
  * License: GPL-2.0+
@@ -15,7 +15,7 @@ defined('ABSPATH') or die('Acceso directo no permitido');
 // Definir constantes del plugin
 define('WP_SRI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WP_SRI_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('WP_SRI_VERSION', '1.0.0');
+define('WP_SRI_VERSION', '0.0.1');
 
 // Cargar archivos necesarios
 require_once WP_SRI_PLUGIN_DIR . 'includes/class-sri-core.php';
