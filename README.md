@@ -49,3 +49,10 @@ El plugin sigue las mejores prácticas de WordPress, con un archivo principal qu
 
 ## Notas de Seguridad
 Este plugin mejora la seguridad de tu sitio, pero no reemplaza otras medidas de seguridad importantes como mantener WordPress y sus plugins actualizados, usar contraseñas fuertes y limitar los intentos de inicio de sesión.
+
+## == Changelog ==
+
+= 0.0.2 =
+* Se modificó la estructura de la base de datos, para permitir la actualización o cambio de algoritmos de hash.
+* Se agregó mas opciones de casos en el método get_or_create_resource.
+* Se corrige El error "Cannot use object of type stdClass as array" en resource_needs_update

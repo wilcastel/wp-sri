@@ -23,18 +23,18 @@ class WP_SRI_Database {
         $charset_collate = $wpdb->get_charset_collate();
         
         $sql = "CREATE TABLE {$this->table_name} (
-          id bigint(20) unsigned NOT NULL auto_increment,
-          url text NOT NULL,
-          type varchar(10) NOT NULL,
-          hash varchar(255) DEFAULT NULL,
-          hash_algorithm varchar(20) DEFAULT NULL,
-          last_checked datetime DEFAULT NULL,
-          found_on text DEFAULT NULL,
-          PRIMARY KEY  (id),
-          UNIQUE KEY url_type (url(255), type),
-          KEY found_on (found_on(100)),
-          KEY last_checked (last_checked)
-        ) $charset_collate;";
+            id bigint(20) unsigned NOT NULL auto_increment,
+            url text NOT NULL,
+            type varchar(10) NOT NULL,
+            hash varchar(255) DEFAULT NULL,
+            hash_algorithm varchar(20) DEFAULT NULL,
+            last_checked datetime DEFAULT NULL,
+            found_on text DEFAULT NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY url_type_algorithm (url(191), type, hash_algorithm),
+            KEY found_on (found_on(100)),
+            KEY last_checked (last_checked)
+          ) $charset_collate;";
         
         dbDelta($sql);
     }
@@ -83,6 +83,14 @@ class WP_SRI_Database {
      */
     public function insert_resource($data) {
         global $wpdb;
+    
+        // Primero intentar actualizar si ya existe
+        $existing = $this->get_resource($data['url'], $data['type']);
+        if ($existing) {
+            return $this->update_resource($data, array('id' => $existing->id));
+        }
+        
+        // Si no existe, insertar nuevo
         return $wpdb->insert($this->table_name, $data);
     }
     

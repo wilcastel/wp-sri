@@ -157,43 +157,62 @@ class WP_SRI_Scanner {
      * @return   WP_SRI_Resource|null   Objeto recurso o null si no se pudo procesar
      */
     private function get_or_create_resource($src, $type, $found_on = null) {
-        // Primero verificar caché
-        $cached = $this->cache->get($src, $type);
-        if ($cached && $cached['hash_algorithm'] === $this->options['hash_algorithm']) {
-            return new WP_SRI_Resource($cached);
-        }
-        
-        // Buscar en la base de datos
-        $resource_data = $this->database->get_resource($src, $type);
-        
-        // Si no existe o necesita actualización
-        if (!$resource_data || $this->resource_needs_update($resource_data)) {
-            $content = $this->get_resource_content($src);
-            
-            if ($content) {
-                $hash = base64_encode(hash($this->options['hash_algorithm'], $content, true));
-                $resource = new WP_SRI_Resource(array(
-                    'url' => $src,
-                    'type' => $type,
-                    'hash' => $hash,
-                    'hash_algorithm' => $this->options['hash_algorithm'],
-                    'last_checked' => current_time('mysql'),
-                    'found_on' => $found_on ?: $this->get_current_detection_url()
-                ));
-                
-                // Guardar en base de datos
-                if ($resource->id ?? false) {
-                    $this->database->update_resource($resource->to_array(), array('id' => $resource->id));
-                } else {
-                    $this->database->insert_resource($resource->to_array());
-                }
-                                    
-                // Actualizar caché
-                $this->cache->set($src, $type, $resource_data);
-            }
-        }
-        
-        return $resource_data ? new WP_SRI_Resource($resource_data) : null;
+     // Primero verificar caché
+     $cached = $this->cache->get($src, $type);
+     if ($cached && $cached['hash_algorithm'] === $this->options['hash_algorithm']) {
+         return new WP_SRI_Resource($cached);
+     }
+     
+     // Buscar en la base de datos
+     $resource_data = $this->database->get_resource($src, $type);
+     
+     // Si existe pero necesita actualización (nuevo algoritmo o caducado)
+     if ($resource_data && $this->resource_needs_update($resource_data)) {
+         $content = $this->get_resource_content($src);
+         
+         if ($content) {
+             $hash = base64_encode(hash($this->options['hash_algorithm'], $content, true));
+             $update_data = array(
+                 'hash' => $hash,
+                 'hash_algorithm' => $this->options['hash_algorithm'],
+                 'last_checked' => current_time('mysql'),
+                 'found_on' => $found_on ?: $this->get_current_detection_url()
+             );
+             
+             $this->database->update_resource($update_data, array('id' => $resource_data->id));
+             $resource_data = (object) array_merge((array) $resource_data, $update_data);
+             
+             // Actualizar caché
+             $this->cache->set($src, $type, (array) $resource_data);
+         }
+     }
+     // Si no existe, crear nuevo
+     elseif (!$resource_data) {
+         $content = $this->get_resource_content($src);
+         
+         if ($content) {
+             $hash = base64_encode(hash($this->options['hash_algorithm'], $content, true));
+             $resource_data = array(
+                 'url' => $src,
+                 'type' => $type,
+                 'hash' => $hash,
+                 'hash_algorithm' => $this->options['hash_algorithm'],
+                 'last_checked' => current_time('mysql'),
+                 'found_on' => $found_on ?: $this->get_current_detection_url()
+             );
+             
+             $insert_id = $this->database->insert_resource($resource_data);
+             if ($insert_id) {
+                 $resource_data['id'] = $insert_id;
+                 $this->cache->set($src, $type, $resource_data);
+                 $resource_data = (object) $resource_data;
+             } else {
+                 return null;
+             }
+         }
+     }
+     
+     return $resource_data ? new WP_SRI_Resource($resource_data) : null;
     }
     
     /**
@@ -286,8 +305,14 @@ class WP_SRI_Scanner {
      * @return   bool      True si necesita actualización, false en caso contrario
      */
     private function resource_needs_update($resource) {
-        return $resource->hash_algorithm !== $this->options['hash_algorithm'] || 
-               strtotime($resource->last_checked) < strtotime('-7 days');
+        if (is_array($resource)) {
+            return $resource['hash_algorithm'] !== $this->options['hash_algorithm'] || 
+                   strtotime($resource['last_checked']) < strtotime('-7 days');
+        } elseif (is_object($resource)) {
+            return $resource->hash_algorithm !== $this->options['hash_algorithm'] || 
+                   strtotime($resource->last_checked) < strtotime('-7 days');
+        }
+        return true;
     }
     
     /**
